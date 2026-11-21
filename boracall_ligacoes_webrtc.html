@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BoraCall — Ligações</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#09111f;--panel:#142238;--line:#2a405e;--blue:#58a6ff;--muted:#a8b8cc}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f4f7fb;font:15px system-ui,sans-serif}.wrap{max-width:760px;margin:auto;padding:20px 15px 40px}.brand{font-size:27px;font-weight:900}.brand span{color:var(--blue)}h1{font-size:23px;margin:20px 0 6px}p,.muted{color:var(--muted);line-height:1.5}.card{background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:15px;margin:13px 0}button{border:0;border-radius:11px;padding:12px 14px;background:var(--blue);color:#061321;font-weight:800;cursor:pointer;margin:4px 3px 4px 0}button.alt{background:#20334d;color:#f4f7fb;border:1px solid #3a5272}button:disabled{opacity:.45}input{width:100%;background:#091525;color:white;border:1px solid var(--line);border-radius:10px;padding:12px;margin:6px 0}video{width:100%;background:#03070c;border-radius:12px;max-height:340px;object-fit:contain}.videos{display:grid;grid-template-columns:1fr 1fr;gap:10px}.label{font-size:12px;color:var(--muted);margin:8px 0 5px}.row{display:flex;gap:8px;flex-wrap:wrap}.row button{flex:1}.status{background:#102d43;border:1px solid #285273;border-radius:11px;padding:11px;color:#c4e5ff;font-size:13px;margin:10px 0}.id{font-size:21px;font-weight:800;word-break:break-all}.messages{height:150px;overflow:auto;background:#091525;border-radius:10px;padding:10px}.msg{background:#243953;border-radius:10px;padding:8px 10px;margin:5px 0;max-width:90%;overflow-wrap:anywhere}.mine{margin-left:auto;background:#174b78}.small{font-size:12px;color:var(--muted)}.danger{background:#a93242;color:white}@media(max-width:520px){.videos{grid-template-columns:1fr}video{max-height:240px}}
+</style>
+</head>
+<body><main class="wrap">
+<div class="brand">Bora<span>Call</span></div>
+<h1>Ligações por link</h1>
+<p>Crie uma sala, compartilhe o link com seu amigo e conversem por áudio ou vídeo. O navegador precisa de conexão com a internet e permissão para usar câmera e microfone.</p>
+<div class="card">
+<div class="label">SEU CÓDIGO DE CONEXÃO</div><div class="id" id="myid">Conectando...</div>
+<div class="row"><button class="alt" id="copyLink" disabled>Copiar meu link de convite</button><button class="alt" id="copyId" disabled>Copiar código</button></div>
+<div class="status" id="status">Conectando ao serviço de sinalização...</div>
+</div>
+<div class="card">
+<b>Entrar na ligação de alguém</b>
+<input id="remoteId" placeholder="Cole o código do amigo aqui">
+<div class="row"><button id="audioCall" disabled>☎ Ligar por áudio</button><button id="videoCall" disabled>▣ Ligar por vídeo</button></div>
+<div class="small">Se você abriu um link de convite, o código será preenchido automaticamente.</div>
+</div>
+<div class="card">
+<b>Chamada</b>
+<div class="videos" style="margin-top:10px">
+<div><div class="label">Você</div><video id="localVideo" autoplay muted playsinline></video></div>
+<div><div class="label">Seu amigo</div><video id="remoteVideo" autoplay playsinline></video></div>
+</div>
+<div class="row" style="margin-top:12px">
+<button class="alt" id="mute" disabled>🎙 Silenciar</button>
+<button class="alt" id="camera" disabled>📷 Câmera</button>
+<button class="alt" id="screen" disabled>▣ Compartilhar tela</button>
+<button class="danger" id="hangup" disabled>Encerrar</button>
+</div>
+</div>
+<div class="card">
+<b>Chat desta ligação</b>
+<div class="messages" id="messages"></div>
+<div class="row"><input id="chatInput" placeholder="Mensagem..." style="flex:1"><button id="send" disabled>Enviar</button></div>
+<div class="small">O chat funciona enquanto a conexão de dados estiver ativa; não é um histórico permanente.</div>
+</div>
+<div class="card">
+<b>Sobre privacidade e funcionamento</b>
+<p class="small">A mídia de uma ligação WebRTC usa criptografia DTLS-SRTP durante o transporte. O serviço PeerJS ajuda a trocar os dados iniciais de conexão; ele não é um sistema de contas ou de mensagens persistentes. Esta versão não implementa ainda o sistema completo de ID BoraCall, grupos, lista de amigos, perfis ou armazenamento de conversas. Não compartilhe links de chamada publicamente.</p>
+<p class="small">Para o link funcionar em celulares diferentes, esta página precisa estar publicada em um endereço HTTPS. Câmera e microfone normalmente não funcionam abrindo um arquivo HTML local. Algumas redes exigem um servidor TURN; esta demonstração usa STUN e pode não conectar em todas as redes.</p>
+</div>
+</main>
+<script>
+let peer=null, mediaCall=null, dataConn=null, localStream=null, screenStream=null, currentKind='audio';
+const $=id=>document.getElementById(id);
+function setStatus(s){$('status').textContent=s}
+function addMsg(t,mine=false){const d=document.createElement('div');d.className='msg'+(mine?' mine':'');d.textContent=t;$('messages').appendChild(d);$('messages').scrollTop=$('messages').scrollHeight}
+function baseUrl(){return location.origin+location.pathname}
+function inviteUrl(){return baseUrl()+'?peer='+encodeURIComponent(peer.id)}
+function setReady(){['copyLink','copyId','audioCall','videoCall'].forEach(x=>$(x).disabled=false);$('myid').textContent=peer.id;const target=new URLSearchParams(location.search).get('peer');if(target){$('remoteId').value=target;setStatus('Convite detectado. Toque em Ligar por áudio ou vídeo para iniciar.')}else setStatus('Pronto! Copie seu link e envie para seu amigo.')}
+peer=new Peer(undefined,{debug:1});
+peer.on('open',()=>setReady());
+peer.on('error',e=>setStatus('Erro de conexão: '+e.type+'. Verifique a internet e tente recarregar.'));
+peer.on('disconnected',()=>setStatus('Desconectado do serviço de sinalização. Recarregando conexão...'));
+peer.on('call',async call=>{
+ if(mediaCall){call.close();return}
+ try{currentKind=call.metadata?.kind||'audio';localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:currentKind==='video'});$('localVideo').srcObject=localStream;mediaCall=call;wireCall(call);call.answer(localStream);enableControls();setStatus('Atendendo chamada...');}
+ catch(e){setStatus('Permissão de câmera/microfone negada ou indisponível: '+e.message);call.close()}
+});
+peer.on('connection',conn=>{dataConn=conn;wireData(conn)});
+function wireCall(call){
+ call.on('stream',s=>{$('remoteVideo').srcObject=s;setStatus('Ligação conectada!');});
+ call.on('close',()=>cleanup('A outra pessoa encerrou a ligação.'));
+ call.on('error',e=>setStatus('Falha na chamada: '+e.message));
+}
+function wireData(conn){conn.on('open',()=>{$('send').disabled=false;});conn.on('data',d=>addMsg(String(d).slice(0,2000),false));conn.on('close',()=>{$('send').disabled=true})}
+async function startCall(kind){
+ const id=$('remoteId').value.trim();if(!id)return setStatus('Cole o código ou abra o link de convite do seu amigo.');
+ if(id===peer.id)return setStatus('Você não pode ligar para seu próprio código.');
+ try{
+  currentKind=kind;localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:kind==='video'});$('localVideo').srcObject=localStream;
+  mediaCall=peer.call(id,localStream,{metadata:{kind}});wireCall(mediaCall);
+  dataConn=peer.connect(id,{reliable:true});wireData(dataConn);enableControls();setStatus('Chamando... Aguarde seu amigo atender.');
+ }catch(e){setStatus('Não foi possível iniciar: '+e.message)}
+}
+function enableControls(){['mute','camera','screen','hangup'].forEach(x=>$(x).disabled=false)}
+function cleanup(message){if(localStream)localStream.getTracks().forEach(t=>t.stop());if(screenStream)screenStream.getTracks().forEach(t=>t.stop());localStream=null;screenStream=null;mediaCall=null;dataConn=null;$('localVideo').srcObject=null;$('remoteVideo').srcObject=null;['mute','camera','screen','hangup','send'].forEach(x=>$(x).disabled=true);setStatus(message)}
+$('audioCall').onclick=()=>startCall('audio');$('videoCall').onclick=()=>startCall('video');
+$('copyLink').onclick=async()=>{try{await navigator.clipboard.writeText(inviteUrl());setStatus('Link de convite copiado! Envie para seu amigo.')}catch(e){setStatus('Não foi possível copiar. Link: '+inviteUrl())}};
+$('copyId').onclick=async()=>{try{await navigator.clipboard.writeText(peer.id);setStatus('Código copiado.')}catch(e){setStatus('Seu código: '+peer.id)}};
+$('mute').onclick=()=>{if(!localStream)return;const t=localStream.getAudioTracks()[0];if(t){t.enabled=!t.enabled;$('mute').textContent=t.enabled?'🎙 Silenciar':'🎙 Ativar microfone'}};
+$('camera').onclick=()=>{if(!localStream)return;const t=localStream.getVideoTracks()[0];if(t){t.enabled=!t.enabled;$('camera').textContent=t.enabled?'📷 Câmera':'📷 Ativar câmera'}else setStatus('Esta chamada foi iniciada sem câmera. Encerre e inicie uma chamada de vídeo.')};
+$('screen').onclick=async()=>{
+ if(!mediaCall||!localStream)return setStatus('Entre em uma chamada antes de compartilhar a tela.');
+ try{
+  screenStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});
+  const track=screenStream.getVideoTracks()[0];
+  const sender=mediaCall.peerConnection.getSenders().find(s=>s.track&&s.track.kind==='video');
+  if(!sender){screenStream.getTracks().forEach(t=>t.stop());screenStream=null;return setStatus('Compartilhamento de tela nesta versão exige uma chamada de vídeo.')}
+  await sender.replaceTrack(track);$('localVideo').srcObject=screenStream;setStatus('Você está compartilhando sua tela.');
+  track.onended=async()=>{const cam=localStream.getVideoTracks()[0];if(cam)await sender.replaceTrack(cam);$('localVideo').srcObject=localStream;screenStream=null;setStatus('Compartilhamento de tela encerrado.')};
+ }catch(e){setStatus('Não foi possível compartilhar a tela: '+e.message)}
+};
+$('hangup').onclick=()=>{if(mediaCall)mediaCall.close();if(dataConn)dataConn.close();cleanup('Ligação encerrada.')};
+$('send').onclick=()=>{const v=$('chatInput').value.trim();if(!v||!dataConn||!dataConn.open)return;dataConn.send(v);addMsg(v,true);$('chatInput').value=''};
+$('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('send').click()});
+</script></body></html>
